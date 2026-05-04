@@ -31,6 +31,8 @@ from core.recon import target_recon
 from core.notifications import notifications, NotifyEvent
 from core.multi_ai import multi_ai
 from core.scan_history import scan_history
+from core.xss_scanner import xss_scanner, XSS_PAYLOADS, PayloadVariantGenerator
+from core.anonymity import anonymity
 
 
 
@@ -676,6 +678,87 @@ async def compare_scans(id1: str, id2: str):
 async def get_target_trends(target: str):
     """Get trend analysis for a target."""
     return scan_history.get_target_trends(target)
+
+
+# ============================================================================
+# XSS SCANNER ENDPOINTS
+# ============================================================================
+
+@app.get("/api/xss/payloads")
+async def get_xss_payloads():
+    """List all available XSS payload categories."""
+    return {cat: len(payloads) for cat, payloads in XSS_PAYLOADS.items()}
+
+@app.post("/api/xss/scan")
+async def start_xss_scan(params: dict):
+    """Start an XSS scan against a target."""
+    url = params.get("url", "")
+    param = params.get("param", "")
+    if not url or not param:
+        raise HTTPException(status_code=400, detail="url and param are required")
+
+    xss_scanner.set_broadcast(broadcast_state)
+    asyncio.create_task(xss_scanner.run_scan(
+        url=url,
+        param=param,
+        method=params.get("method", "GET"),
+        cookies=params.get("cookies", ""),
+        delay=float(params.get("delay", 3.0)),
+        auto_chain=params.get("auto_chain", False),
+        use_tor=params.get("tor", False),
+        categories=params.get("categories"),
+    ))
+    return {"status": "started", "target": url, "param": param}
+
+@app.post("/api/xss/stop")
+async def stop_xss_scan():
+    """Stop the running XSS scan."""
+    xss_scanner.stop()
+    return {"status": "stopped"}
+
+@app.get("/api/xss/results")
+async def get_xss_results():
+    """Get the latest XSS scan results."""
+    return xss_scanner._build_summary()
+
+@app.post("/api/xss/variants")
+async def generate_xss_variants(params: dict):
+    """Generate and test payload variants."""
+    payload = params.get("payload", "")
+    url = params.get("url", "")
+    param = params.get("param", "")
+    if not payload or not url or not param:
+        raise HTTPException(status_code=400, detail="payload, url, and param are required")
+
+    results = await xss_scanner.generate_and_test_variants(
+        url=url, param=param, payload=payload,
+        method=params.get("method", "GET"),
+        cookies=params.get("cookies", ""),
+    )
+    return {"variants": results}
+
+
+# ============================================================================
+# ANONYMITY ENDPOINTS
+# ============================================================================
+
+@app.get("/api/anonymity/status")
+async def get_anonymity_status():
+    """Get current anonymity status."""
+    return anonymity.get_status()
+
+@app.post("/api/anonymity/tor/enable")
+async def enable_tor():
+    """Enable Tor for anonymous scanning."""
+    success = anonymity.enable_tor()
+    return {"enabled": success, "status": anonymity.get_status()}
+
+@app.post("/api/anonymity/tor/disable")
+async def disable_tor():
+    """Disable Tor."""
+    anonymity.disable_tor()
+    return {"enabled": False, "status": anonymity.get_status()}
+
 
 # ============================================================================
 # STATIC FILES

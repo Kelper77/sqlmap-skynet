@@ -1294,6 +1294,82 @@
                 </div>
             </div>
         </div>
+
+        <!-- ============================================================= -->
+        <!-- XSS SCANNER SECTION                                           -->
+        <!-- ============================================================= -->
+        <div class="panel" style="margin-top:15px;">
+            <div class="panel-header" onclick="document.getElementById('xss-section').style.display = document.getElementById('xss-section').style.display === 'none' ? 'block' : 'none'" style="cursor:pointer;">
+                <span>⚡ XSS Auto Scanner</span>
+                <span class="panel-badge warning" id="xss-badge">READY</span>
+            </div>
+            <div id="xss-section" style="display:none;">
+                <div class="panel-content">
+                    <!-- XSS CONTROLS -->
+                    <div class="control-row" style="margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+                        <input type="text" id="xss-url" placeholder="Target URL (e.g. https://example.com/search)" style="flex:2;min-width:200px;">
+                        <input type="text" id="xss-param" placeholder="Parameter (e.g. q)" style="flex:1;min-width:100px;">
+                        <select id="xss-method" style="background:#0a0f0a;color:#0f0;border:1px solid #1a3a1a;border-radius:4px;padding:8px;font-family:monospace;">
+                            <option value="GET">GET</option>
+                            <option value="POST">POST</option>
+                        </select>
+                        <input type="text" id="xss-cookies" placeholder="Cookies (optional)" style="flex:1;min-width:120px;">
+                    </div>
+                    <div class="control-row" style="margin-bottom:12px;gap:8px;">
+                        <label style="display:flex;align-items:center;gap:5px;color:#ff0;font-size:11px;cursor:pointer;">
+                            <input type="checkbox" id="xss-autochain" style="accent-color:#ff0;"> Auto Chain Bypass
+                        </label>
+                        <label style="display:flex;align-items:center;gap:5px;color:#0ff;font-size:11px;cursor:pointer;">
+                            <input type="checkbox" id="xss-tor" style="accent-color:#0ff;"> Tor
+                        </label>
+                        <input type="number" id="xss-delay" value="3" min="0.5" max="30" step="0.5" style="width:60px;background:#0a0f0a;color:#0f0;border:1px solid #1a3a1a;border-radius:4px;padding:8px;font-family:monospace;" title="Delay between payloads (seconds)">
+                        <span style="color:#666;font-size:10px;align-self:center;">sec delay</span>
+                        <div style="flex:1;"></div>
+                        <button id="xss-start" onclick="startXSSScan()" style="background:#003b00;border:1px solid #0f0;">⚡ Start Auto Testing</button>
+                        <button id="xss-stop" onclick="stopXSSScan()" class="danger" disabled>Stop</button>
+                    </div>
+
+                    <!-- XSS TERMINAL -->
+                    <div class="terminal" id="xss-terminal" style="height:250px;margin-bottom:12px;"></div>
+
+                    <!-- XSS RESULTS TABLE -->
+                    <div id="xss-results-section" style="display:none;">
+                        <!-- BYPASSES -->
+                        <div id="xss-bypasses" style="display:none;margin-bottom:12px;">
+                            <div style="color:#ff0;font-size:12px;font-weight:bold;margin-bottom:6px;border-bottom:1px solid #333;padding-bottom:4px;">
+                                🔓 SUCCESSFUL BYPASSES
+                            </div>
+                            <div id="xss-bypass-list"></div>
+                        </div>
+
+                        <!-- RESULTS TABLE -->
+                        <div style="color:#0f0;font-size:12px;font-weight:bold;margin-bottom:6px;border-bottom:1px solid #333;padding-bottom:4px;">
+                            📊 Payload Results
+                        </div>
+                        <div style="overflow-x:auto;max-height:400px;overflow-y:auto;">
+                            <table style="width:100%;border-collapse:collapse;font-size:10px;">
+                                <thead>
+                                    <tr style="background:rgba(0,60,0,0.5);color:#0f0;text-align:left;">
+                                        <th style="padding:6px;border-bottom:1px solid #1a3a1a;">#</th>
+                                        <th style="padding:6px;border-bottom:1px solid #1a3a1a;">Category</th>
+                                        <th style="padding:6px;border-bottom:1px solid #1a3a1a;">Payload</th>
+                                        <th style="padding:6px;border-bottom:1px solid #1a3a1a;">HTTP</th>
+                                        <th style="padding:6px;border-bottom:1px solid #1a3a1a;">Reflected</th>
+                                        <th style="padding:6px;border-bottom:1px solid #1a3a1a;">Status</th>
+                                        <th style="padding:6px;border-bottom:1px solid #1a3a1a;">Variants</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="xss-results-body"></tbody>
+                            </table>
+                        </div>
+
+                        <!-- SUMMARY -->
+                        <div id="xss-summary" style="margin-top:12px;padding:10px;background:rgba(0,20,0,0.6);border-radius:4px;font-size:11px;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <script>
@@ -2216,6 +2292,202 @@
             }
         }
 
+
+        // ── XSS Scanner ──
+        let xssResultIndex = 0;
+
+        function addXSSTerminalLine(line, level = 'info') {
+            const term = document.getElementById('xss-terminal');
+            if (!term) return;
+            const div = document.createElement('div');
+            div.className = `terminal-line line-${level}`;
+            div.textContent = line;
+            term.appendChild(div);
+            term.scrollTop = term.scrollHeight;
+            while (term.children.length > 500) term.removeChild(term.firstChild);
+        }
+
+        async function startXSSScan() {
+            const url = document.getElementById('xss-url').value.trim();
+            const param = document.getElementById('xss-param').value.trim();
+            if (!url || !param) { alert('Enter target URL and parameter name'); return; }
+
+            document.getElementById('xss-start').disabled = true;
+            document.getElementById('xss-stop').disabled = false;
+            document.getElementById('xss-badge').textContent = 'SCANNING';
+            document.getElementById('xss-badge').classList.add('active');
+            document.getElementById('xss-terminal').innerHTML = '';
+            document.getElementById('xss-results-body').innerHTML = '';
+            document.getElementById('xss-results-section').style.display = 'none';
+            document.getElementById('xss-bypasses').style.display = 'none';
+            xssResultIndex = 0;
+
+            addXSSTerminalLine('[XSS] Initializing auto payload scanner...', 'info');
+
+            try {
+                await fetch('/api/xss/scan', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        url: url,
+                        param: param,
+                        method: document.getElementById('xss-method').value,
+                        cookies: document.getElementById('xss-cookies').value.trim(),
+                        delay: parseFloat(document.getElementById('xss-delay').value) || 3,
+                        auto_chain: document.getElementById('xss-autochain').checked,
+                        tor: document.getElementById('xss-tor').checked,
+                    })
+                });
+                pollXSSResults();
+            } catch (e) {
+                addXSSTerminalLine('[ERROR] ' + e.message, 'error');
+            }
+        }
+
+        async function stopXSSScan() {
+            await fetch('/api/xss/stop', {method: 'POST'});
+            document.getElementById('xss-start').disabled = false;
+            document.getElementById('xss-stop').disabled = true;
+            document.getElementById('xss-badge').textContent = 'STOPPED';
+            addXSSTerminalLine('[XSS] Scan stopped.', 'warning');
+        }
+
+        async function pollXSSResults() {
+            const poll = async () => {
+                try {
+                    const resp = await fetch('/api/xss/results');
+                    const data = await resp.json();
+
+                    if (data.total_tested > 0) {
+                        document.getElementById('xss-results-section').style.display = 'block';
+                        updateXSSSummary(data);
+                    }
+
+                    if (data.bypass_results && data.bypass_results.length > 0) {
+                        const bypassDiv = document.getElementById('xss-bypasses');
+                        bypassDiv.style.display = 'block';
+                        const list = document.getElementById('xss-bypass-list');
+                        list.innerHTML = data.bypass_results.map(b =>
+                            `<div style="padding:6px;margin-bottom:4px;background:rgba(255,255,0,0.1);border:1px solid #ff0;border-radius:4px;font-size:10px;">
+                                <span style="color:#ff0;">BYPASS:</span> ${escapeHtml(b.original).substring(0,50)} → <span style="color:#0f0;">${b.transform}</span> → HTTP ${b.http_status}
+                            </div>`
+                        ).join('');
+                    }
+
+                    if (data.total_tested > 0 && data.total_tested === (data.total_reflected + data.total_blocked + (data.total_tested - data.total_reflected - data.total_blocked))) {
+                        // Check if scan is still running
+                        const startBtn = document.getElementById('xss-start');
+                        if (startBtn.disabled) {
+                            setTimeout(poll, 2000);
+                        }
+                    }
+                } catch (e) { /* ignore */ }
+            };
+
+            // Poll every 2s while scan is running
+            const interval = setInterval(async () => {
+                const startBtn = document.getElementById('xss-start');
+                if (!startBtn.disabled) {
+                    clearInterval(interval);
+                    // Final poll
+                    await poll();
+                    document.getElementById('xss-badge').textContent = 'DONE';
+                    return;
+                }
+                await poll();
+            }, 2000);
+        }
+
+        function updateXSSSummary(data) {
+            const summary = document.getElementById('xss-summary');
+            if (!summary) return;
+            summary.innerHTML = `
+                <div style="display:flex;gap:20px;flex-wrap:wrap;">
+                    <span>Tested: <strong style="color:#0f0;">${data.total_tested}</strong></span>
+                    <span>Reflected: <strong style="color:#ff0;">${data.total_reflected}</strong></span>
+                    <span>Blocked: <strong style="color:#f00;">${data.total_blocked}</strong></span>
+                    <span>Bypasses: <strong style="color:#0ff;">${data.total_bypasses}</strong></span>
+                </div>
+                ${data.reflected_payloads && data.reflected_payloads.length > 0 ? `
+                <div style="margin-top:8px;color:#ff0;">Reflected payloads:</div>
+                ${data.reflected_payloads.map(p => `<div style="font-size:10px;color:#0f0;padding:2px 0;">• [${p.category}] ${escapeHtml(p.payload).substring(0,80)}</div>`).join('')}
+                ` : ''}
+            `;
+        }
+
+        async function testVariant(payload, url, param, method) {
+            try {
+                const resp = await fetch('/api/xss/variants', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({payload, url, param, method})
+                });
+                const data = await resp.json();
+                if (data.variants) {
+                    addXSSTerminalLine('[VARIANTS] Testing 3 variants of: ' + payload.substring(0, 40), 'info');
+                    data.variants.forEach(v => {
+                        addXSSTerminalLine(`  [${v.type}] HTTP ${v.http_status} — ${v.reflected ? 'REFLECTED' : v.status}`, v.reflected ? 'success' : 'info');
+                    });
+                }
+            } catch (e) {
+                addXSSTerminalLine('[ERROR] Variant test failed: ' + e.message, 'error');
+            }
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        // Handle XSS WebSocket events
+        if (typeof statsManager !== 'undefined') {
+            const origHandler = statsManager.handleMessage.bind(statsManager);
+            statsManager.handleMessage = function(msg) {
+                const p = msg.payload || {};
+                switch(msg.type) {
+                    case 'xss_terminal':
+                        addXSSTerminalLine(p.line, p.level);
+                        break;
+                    case 'xss_result':
+                        xssResultIndex++;
+                        const tbody = document.getElementById('xss-results-body');
+                        if (tbody) {
+                            document.getElementById('xss-results-section').style.display = 'block';
+                            const statusColor = p.reflected ? '#ff0' : p.status === 'BLOCKED' ? '#f00' : '#666';
+                            const xUrl = document.getElementById('xss-url').value.trim();
+                            const xParam = document.getElementById('xss-param').value.trim();
+                            const xMethod = document.getElementById('xss-method').value;
+                            const row = document.createElement('tr');
+                            row.style.borderBottom = '1px solid #1a1a1a';
+                            row.innerHTML = `
+                                <td style="padding:4px 6px;color:#888;">${p.index}</td>
+                                <td style="padding:4px 6px;color:#0ff;">${p.category}</td>
+                                <td style="padding:4px 6px;color:#ccc;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(p.payload)}">${escapeHtml(p.payload)}</td>
+                                <td style="padding:4px 6px;color:${p.http_status === 200 ? '#0f0' : '#f00'};">${p.http_status}</td>
+                                <td style="padding:4px 6px;color:${p.reflected ? '#ff0' : '#666'};">${p.reflected ? 'YES' : 'NO'}</td>
+                                <td style="padding:4px 6px;color:${statusColor};font-weight:bold;">${p.status}</td>
+                                <td style="padding:4px 6px;">
+                                    ${(p.reflected || p.status === 'BLOCKED') ? `<button onclick="testVariant('${escapeHtml(p.payload).replace(/'/g, "\\'")}','${xUrl}','${xParam}','${xMethod}')" style="font-size:9px;padding:2px 6px;">Variants</button>` : ''}
+                                </td>
+                            `;
+                            tbody.appendChild(row);
+                        }
+                        break;
+                    case 'xss_bypass':
+                        addXSSTerminalLine(`[BYPASS FOUND] ${p.transform}: ${p.original.substring(0,40)} → HTTP ${p.http_status}`, 'success');
+                        break;
+                    case 'xss_summary':
+                        document.getElementById('xss-start').disabled = false;
+                        document.getElementById('xss-stop').disabled = true;
+                        document.getElementById('xss-badge').textContent = 'DONE';
+                        updateXSSSummary(p);
+                        break;
+                    default:
+                        origHandler(msg);
+                }
+            };
+        }
 
         // ── Recon Panel ──
         function updateReconPanel(data) {

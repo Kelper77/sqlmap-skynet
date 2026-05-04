@@ -342,6 +342,38 @@ class SkynetMCPServer:
             except Exception as e:
                 return {"ok": False, "error": str(e)}
 
+        @self.mcp.tool()
+        async def xss_scan(url: str = "", param: str = "", auto_chain: bool = False) -> dict:
+            """Run XSS auto payload scanner against a target URL and parameter."""
+            if not url or not param:
+                return {"ok": False, "error": "url and param are required"}
+            try:
+                from core.xss_scanner import xss_scanner
+                result = await xss_scanner.run_scan(
+                    url=url, param=param, auto_chain=auto_chain,
+                )
+                return {"ok": True, **result}
+            except Exception as e:
+                return {"ok": False, "error": str(e)}
+
+        @self.mcp.tool()
+        def get_xss_results() -> dict:
+            """Get the latest XSS scan results."""
+            try:
+                from core.xss_scanner import xss_scanner
+                return {"ok": True, **xss_scanner._build_summary()}
+            except Exception as e:
+                return {"ok": False, "error": str(e)}
+
+        @self.mcp.tool()
+        def get_anonymity_status() -> dict:
+            """Get current anonymity/Tor status."""
+            try:
+                from core.anonymity import anonymity
+                return {"ok": True, **anonymity.get_status()}
+            except Exception as e:
+                return {"ok": False, "error": str(e)}
+
         # Debug: tool registry size
         try:
             # count = len(getattr(self.mcp, "_tools", {}))
