@@ -87,6 +87,9 @@ class SQLMapRunner:
         self.web_searches = 0
         self.injection_point_found = False
         
+        # Profile overrides (set by main.py when a scan profile is selected)
+        self.profile_overrides: Dict = {}
+        
         # Context for current scan
         self.context: Optional[ScanContext] = None
         
@@ -395,6 +398,25 @@ class SQLMapRunner:
             if self.context.waf_detected and not self.context.injection_found:
                 logger.info("RUN_SINGLE", "Starting bypass phase")
                 await self._run_phase(ScanPhase.BYPASS)
+
+            # ========== ADAPTIVE ESCALATION ==========
+            # If no injection found yet, auto-escalate level/risk/techniques and retry
+            if not self.context.injection_found and self.running:
+                escalation_attempts = [
+                    {"level": 3, "risk": 2, "technique": "BEUST", "tamper": "space2comment,between,randomcase"},
+                    {"level": 5, "risk": 3, "technique": "BEUSTQ", "tamper": "space2comment,between,randomcase,charencode,percentage"},
+                ]
+                for esc_idx, esc in enumerate(escalation_attempts):
+                    if self.context.injection_found or not self.running:
+                        break
+                    await self.broadcast("terminal", {
+                        "level": "info",
+                        "line": f"[ADAPT] Escalation #{esc_idx+1} — level={esc['level']}, risk={esc['risk']}, technique={esc['technique']}"
+                    })
+                    # Reset cycle counter for retry
+                    self.context.cycle = 0
+                    self.context.max_cycles = max(10, self.context.max_cycles // 2)
+                    await self._run_phase(ScanPhase.DETECTION)
             
             # ========== PHASE 3 => ENUMERATION ==========
             if self.context.injection_found and self.running:
@@ -619,8 +641,13 @@ class SQLMapRunner:
             'cookies': self.context.cookies,
             'headers': self.context.headers,
             'tor': self.tor_enabled,
+            'random_agent': True,
             'answers': 'Y'
         }
+
+        # Apply scan profile overrides (level, risk, threads, delay, etc.)
+        if self.profile_overrides:
+            options.update(self.profile_overrides)
         
         # Apply AI command modifications
         cmd_mods = ai_decision.get('command_modifications', [])

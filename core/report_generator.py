@@ -67,22 +67,25 @@ class SQLMapReportGenerator:
             }
         }
         
-        # Generate all three formats
+        # Generate all formats
         json_path = self._generate_json(report_data)
         txt_path = self._generate_txt(report_data)
         html_path = self._generate_html(report_data)
+        sarif_path = self._generate_sarif(report_data)
         
         # FIXED: Use correct logger format (component, message, data)
         logger.info("REPORT", "Reports generated", {
             "json": json_path.name,
             "txt": txt_path.name,
-            "html": html_path.name
+            "html": html_path.name,
+            "sarif": sarif_path.name,
         })
         
         return {
             'json': str(json_path),
             'txt': str(txt_path),
             'html': str(html_path),
+            'sarif': str(sarif_path),
             'data': report_data
         }
     
@@ -338,6 +341,144 @@ class SQLMapReportGenerator:
         
         return filepath
     
+    def _generate_sarif(self, data: Dict) -> Path:
+        """Generate SARIF 2.1.0 report for GitHub Security / Azure DevOps integration."""
+        filepath = Path(f"{self.current_report_base}.sarif")
+
+        info = data['scan_info']
+        findings = data['findings']
+
+        results_list = []
+        rules_list = []
+        rule_ids_seen = set()
+
+        # SQL Injection finding
+        if findings.get('injection_found'):
+            rule_id = 'SQLI-001'
+            if rule_id not in rule_ids_seen:
+                rules_list.append({
+                    'id': rule_id,
+                    'name': 'SQLInjectionDetected',
+                    'shortDescription': {'text': 'SQL Injection vulnerability detected'},
+                    'fullDescription': {
+                        'text': 'The target URL is vulnerable to SQL injection. '
+                                'An attacker can manipulate database queries through '
+                                'user-supplied input.'
+                    },
+                    'defaultConfiguration': {'level': 'error'},
+                    'properties': {'tags': ['security', 'sql-injection', 'owasp-a03']},
+                })
+                rule_ids_seen.add(rule_id)
+
+            techniques = ', '.join(findings.get('techniques', [])) or 'Unknown'
+            results_list.append({
+                'ruleId': rule_id,
+                'level': 'error',
+                'message': {
+                    'text': f"SQL Injection found via technique(s): {techniques}. "
+                            f"Databases discovered: {findings.get('total_databases', 0)}. "
+                            f"Tables: {findings.get('total_tables', 0)}. "
+                            f"WAF: {findings.get('waf_detected') or 'None'}."
+                },
+                'locations': [{
+                    'physicalLocation': {
+                        'artifactLocation': {
+                            'uri': info.get('target_url', ''),
+                            'uriBaseId': 'WEBROOT',
+                        }
+                    }
+                }],
+            })
+
+        # WAF detection finding
+        if findings.get('waf_detected'):
+            rule_id = 'WAF-001'
+            if rule_id not in rule_ids_seen:
+                rules_list.append({
+                    'id': rule_id,
+                    'name': 'WAFDetected',
+                    'shortDescription': {'text': 'Web Application Firewall detected'},
+                    'defaultConfiguration': {'level': 'note'},
+                    'properties': {'tags': ['security', 'waf']},
+                })
+                rule_ids_seen.add(rule_id)
+
+            results_list.append({
+                'ruleId': rule_id,
+                'level': 'note',
+                'message': {
+                    'text': f"WAF detected: {findings['waf_detected']}"
+                },
+                'locations': [{
+                    'physicalLocation': {
+                        'artifactLocation': {
+                            'uri': info.get('target_url', ''),
+                            'uriBaseId': 'WEBROOT',
+                        }
+                    }
+                }],
+            })
+
+        # High-value column findings
+        for hv in data.get('metadata', {}).get('high_value_targets', []):
+            rule_id = 'HVD-001'
+            if rule_id not in rule_ids_seen:
+                rules_list.append({
+                    'id': rule_id,
+                    'name': 'HighValueDataExposed',
+                    'shortDescription': {'text': 'High-value data column accessible'},
+                    'defaultConfiguration': {'level': 'warning'},
+                    'properties': {'tags': ['security', 'data-exposure']},
+                })
+                rule_ids_seen.add(rule_id)
+
+            results_list.append({
+                'ruleId': rule_id,
+                'level': 'warning',
+                'message': {
+                    'text': f"High-value column '{hv['column']}' ({hv['category']}) "
+                            f"found in {hv['location']}"
+                },
+                'locations': [{
+                    'physicalLocation': {
+                        'artifactLocation': {
+                            'uri': info.get('target_url', ''),
+                            'uriBaseId': 'WEBROOT',
+                        }
+                    }
+                }],
+            })
+
+        sarif = {
+            '$schema': 'https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json',
+            'version': '2.1.0',
+            'runs': [{
+                'tool': {
+                    'driver': {
+                        'name': 'SQLMAP SKYNET',
+                        'version': '1.2.0',
+                        'informationUri': 'https://github.com/drcrypterdotru/sqlmap-skynet',
+                        'rules': rules_list,
+                    }
+                },
+                'results': results_list,
+                'invocations': [{
+                    'executionSuccessful': True,
+                    'startTimeUtc': info.get('timestamp', ''),
+                    'properties': {
+                        'sessionId': info.get('session_id', ''),
+                        'method': info.get('method', 'GET'),
+                        'cycles': data.get('ai_analysis', {}).get('cycles', 0),
+                    },
+                }],
+            }],
+        }
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(sarif, f, indent=2, ensure_ascii=False, default=str)
+
+        return filepath
+
     def _sanitize_filename(self, name: str) -> str:
         """Sanitize string for use in filename"""
         invalid_chars = '<>:\"/\\\\|?*'
