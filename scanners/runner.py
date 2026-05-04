@@ -87,6 +87,9 @@ class SQLMapRunner:
         self.web_searches = 0
         self.injection_point_found = False
         
+        # Profile overrides (set by main.py when a scan profile is selected)
+        self.profile_overrides: Dict = {}
+        
         # Context for current scan
         self.context: Optional[ScanContext] = None
         
@@ -641,6 +644,10 @@ class SQLMapRunner:
             'random_agent': True,
             'answers': 'Y'
         }
+
+        # Apply scan profile overrides (level, risk, threads, delay, etc.)
+        if self.profile_overrides:
+            options.update(self.profile_overrides)
         
         # Apply AI command modifications
         cmd_mods = ai_decision.get('command_modifications', [])

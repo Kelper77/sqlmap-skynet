@@ -186,8 +186,9 @@ async def start_scan(params: dict):
 
         # ── Scan Profile support ──
         profile_name = params.get('profile', '')
+        profile_opts = {}
         if profile_name:
-            profile_opts = apply_profile(profile_name)
+            profile_opts = apply_profile(profile_name) or {}
             if profile_opts:
                 max_cycles = profile_opts.get('max_cycles', max_cycles)
                 tor = profile_opts.get('tor', tor)
@@ -250,6 +251,15 @@ async def start_scan(params: dict):
             use_rag=rag,
             use_web_search=web_search_enabled
         )
+
+        # Apply scan profile settings to runner so they flow through to sqlmap
+        if profile_opts:
+            current_runner.profile_overrides = {
+                k: v for k, v in profile_opts.items()
+                if k in ('level', 'risk', 'threads', 'delay', 'timeout',
+                         'retries', 'technique', 'tamper', 'random_agent')
+                and v is not None
+            }
         
         # Help UI show accurate progress
         try:
@@ -313,7 +323,7 @@ async def start_scan(params: dict):
             "line": f"[!] Scan failed: {str(e)}"
         })
         await notifications.notify(NotifyEvent.ERROR, {
-            "target": urls[0] if urls else "unknown",
+            "target": urls[0] if 'urls' in dir() and urls else "unknown",
             "error": str(e),
         })
     finally:
