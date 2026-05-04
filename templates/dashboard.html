@@ -1065,6 +1065,18 @@
             <div class="control-row">
                 <input type="text" id="cookies-input" placeholder="Cookies (optional)">
                 <input type="text" id="data-input" placeholder="Extra Data (optional)">
+                <select id="profile-select" style="background:#0a0f0a;color:#0f0;border:1px solid #1a3a1a;border-radius:4px;padding:8px;font-family:monospace;min-width:140px;">
+                    <option value="">Profile: Custom</option>
+                    <option value="stealth">🔇 Stealth</option>
+                    <option value="balanced">⚖️ Balanced</option>
+                    <option value="aggressive">⚡ Aggressive</option>
+                    <option value="deep_recon">🔬 Deep Recon</option>
+                    <option value="speed">🚀 Speed</option>
+                    <option value="waf_buster">🛡️ WAF Buster</option>
+                </select>
+                <label style="display:flex;align-items:center;gap:5px;color:#888;font-size:11px;cursor:pointer;">
+                    <input type="checkbox" id="recon-toggle" style="accent-color:#0ff;"> Recon
+                </label>
                 <button id="btn-start" onclick="startScan()">Initialize</button>
                 <button id="btn-stop" class="danger" onclick="stopScan()" disabled>Abort</button>
                 <button onclick="clearAll()">Clear</button>
@@ -1213,6 +1225,70 @@
                         <div class="card">
                             <div class="card-title">Enumeration Status</div>
                             <div class="card-content" id="findings-content">No findings yet...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- RECON PANEL -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <span>🔍 Recon Intel</span>
+                        <span class="panel-badge cyan" id="recon-badge">RECON</span>
+                    </div>
+                    <div class="panel-content" id="recon-panel">
+                        <div class="card cyan">
+                            <div class="card-title">Target Fingerprint</div>
+                            <div class="card-content" id="recon-content">Enable recon checkbox to fingerprint targets before scanning.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SCAN HISTORY PANEL -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <span>📜 Scan History</span>
+                        <span class="panel-badge" id="history-badge">0 SCANS</span>
+                    </div>
+                    <div class="panel-content" id="history-panel">
+                        <div class="card">
+                            <div class="card-title">History</div>
+                            <div class="card-content" id="history-content">No scan history yet. Scans are recorded automatically.</div>
+                        </div>
+                        <button onclick="loadScanHistory()" style="margin-top:8px;width:100%;padding:6px;font-size:11px;">Refresh History</button>
+                    </div>
+                </div>
+
+                <!-- NOTIFICATIONS PANEL -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <span>🔔 Notifications</span>
+                        <span class="panel-badge" id="notify-badge">CONFIG</span>
+                    </div>
+                    <div class="panel-content" id="notify-panel">
+                        <div style="font-size:11px;color:#888;margin-bottom:8px;">
+                            Configure Discord/Telegram/Webhook alerts via environment variables:
+                        </div>
+                        <div style="font-family:monospace;font-size:10px;color:#0f0;background:rgba(0,20,0,0.6);padding:8px;border-radius:4px;margin-bottom:6px;">
+                            SKYNET_DISCORD_WEBHOOK=...<br>
+                            SKYNET_TELEGRAM_TOKEN=...<br>
+                            SKYNET_TELEGRAM_CHAT_ID=...<br>
+                            SKYNET_WEBHOOK_URL=...
+                        </div>
+                        <button onclick="testNotification()" style="width:100%;padding:6px;font-size:11px;">Send Test Notification</button>
+                        <div id="notify-status" style="font-size:10px;color:#888;margin-top:6px;"></div>
+                    </div>
+                </div>
+
+                <!-- MULTI-AI CONSENSUS PANEL -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <span>🧬 Multi-AI Consensus</span>
+                        <span class="panel-badge cyan" id="consensus-badge">AI</span>
+                    </div>
+                    <div class="panel-content" id="consensus-panel">
+                        <div class="card cyan">
+                            <div class="card-title">Consensus Engine</div>
+                            <div class="card-content" id="consensus-content">Multi-AI consensus queries appear here when multiple providers are available.</div>
                         </div>
                     </div>
                 </div>
@@ -1540,12 +1616,17 @@
                         renderQuickAccess({locations: locations});
                         break;
 
+                    case 'recon':
+                        updateReconPanel(p);
+                        break;
+
                     case 'complete':
                         activeTargets = 0;
                         document.getElementById('btn-start').disabled = false;
                         document.getElementById('btn-stop').disabled = true;
                         this.updateDisplay({ running: false, status: 'COMPLETE', targets: 0 });
                         this.loadMemoryStats();
+                        loadScanHistory();
                         break;
 
                     default:
@@ -2058,6 +2139,8 @@
             updateFindingsDisplay();
 
             if (statsManager.ws && statsManager.ws.readyState === WebSocket.OPEN) {
+                const profile = document.getElementById('profile-select').value;
+                const reconEnabled = document.getElementById('recon-toggle').checked;
                 statsManager.ws.send(JSON.stringify({
                     action: 'start',
                     targets: targets,
@@ -2069,7 +2152,9 @@
                     tor: torEnabled,
                     rag: ragEnabled,
                     web_search: webSearchEnabled,
-                    backend: currentBackend
+                    backend: currentBackend,
+                    profile: profile,
+                    recon: reconEnabled
                 }));
 
                 document.getElementById('btn-start').disabled = true;
@@ -2132,10 +2217,92 @@
         }
 
 
+        // ── Recon Panel ──
+        function updateReconPanel(data) {
+            const panel = document.getElementById('recon-panel');
+            if (!panel) return;
+            const badge = document.getElementById('recon-badge');
+            if (badge) badge.textContent = 'DONE';
+
+            let html = '';
+            if (data.server) {
+                html += `<div class="card cyan"><div class="card-title">Server</div><div class="card-content">${data.server}</div></div>`;
+            }
+            if (data.tech_stack && data.tech_stack.length) {
+                html += `<div class="card cyan"><div class="card-title">Tech Stack</div><div class="card-content">${data.tech_stack.join(', ')}</div></div>`;
+            }
+            if (data.waf_indicators && data.waf_indicators.length) {
+                html += `<div class="card error"><div class="card-title">WAF Detected</div><div class="card-content">${data.waf_indicators.join(', ')}</div></div>`;
+            }
+            if (data.risk_score !== undefined) {
+                const color = data.risk_score > 50 ? 'error' : data.risk_score > 25 ? 'warning' : '';
+                html += `<div class="card ${color}"><div class="card-title">Risk Score</div><div class="card-content" style="font-size:24px;font-weight:bold;">${data.risk_score}/100</div></div>`;
+            }
+            if (data.missing_security_headers && data.missing_security_headers.length) {
+                html += `<div class="card warning"><div class="card-title">Missing Headers (${data.missing_security_headers.length})</div><div class="card-content" style="font-size:10px;">${data.missing_security_headers.join(', ')}</div></div>`;
+            }
+            if (data.recommendations && data.recommendations.length) {
+                html += data.recommendations.map(r => `<div class="card"><div class="card-content" style="font-size:11px;">${r}</div></div>`).join('');
+            }
+            if (data.ssl_info && data.ssl_info.protocol) {
+                html += `<div class="card cyan"><div class="card-title">SSL</div><div class="card-content">${data.ssl_info.protocol} — ${data.ssl_info.issuer || 'Unknown CA'}</div></div>`;
+            }
+            panel.innerHTML = html || '<div class="card cyan"><div class="card-content">No recon data</div></div>';
+        }
+
+        // ── Scan History ──
+        async function loadScanHistory() {
+            try {
+                const resp = await fetch('/api/history?limit=10');
+                const data = await resp.json();
+                const panel = document.getElementById('history-panel');
+                const badge = document.getElementById('history-badge');
+                if (!panel) return;
+
+                if (badge && data.stats) {
+                    badge.textContent = `${data.stats.total_scans || 0} SCANS`;
+                }
+
+                if (!data.scans || data.scans.length === 0) {
+                    panel.innerHTML = '<div class="card"><div class="card-content">No scan history yet.</div></div>';
+                    return;
+                }
+
+                let html = '';
+                data.scans.slice().reverse().forEach(s => {
+                    const vuln = s.injection_found ? '🔴 VULN' : '🟢 SAFE';
+                    const ts = new Date(s.timestamp).toLocaleString();
+                    html += `<div class="card ${s.injection_found ? 'error' : ''}" style="margin-bottom:6px;">
+                        <div class="card-title" style="font-size:10px;">${vuln} ${s.target ? s.target.substring(0, 40) : 'N/A'}</div>
+                        <div class="card-content" style="font-size:10px;">
+                            ${ts} | ${s.profile || 'custom'} | DBs:${s.database_count || 0} | Cycles:${s.cycles || 0}
+                        </div>
+                    </div>`;
+                });
+                html += '<button onclick="loadScanHistory()" style="margin-top:8px;width:100%;padding:6px;font-size:11px;">Refresh</button>';
+                panel.innerHTML = html;
+            } catch (e) {
+                console.error('Failed to load history:', e);
+            }
+        }
+
+        // ── Notifications ──
+        async function testNotification() {
+            const status = document.getElementById('notify-status');
+            try {
+                const resp = await fetch('/api/notifications/test', {method: 'POST'});
+                const data = await resp.json();
+                if (status) status.textContent = 'Test notification sent.';
+            } catch (e) {
+                if (status) status.textContent = 'Failed: ' + e.message;
+            }
+        }
+
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             loadSettings();
             statsManager.start();
+            loadScanHistory();
         });
     </script>
 </body>

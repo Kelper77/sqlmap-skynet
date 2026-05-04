@@ -284,6 +284,64 @@ class SkynetMCPServer:
                 "available": [k for k, v in self.cloud_ai_status.items() if v],
                 "recommended": self._get_recommended_provider()
             }
+
+        @self.mcp.tool()
+        def list_scan_profiles() -> dict:
+            """List all available scan profiles (Stealth, Balanced, Aggressive, etc.)."""
+            try:
+                from core.scan_profiles import list_profiles
+                return {"ok": True, "profiles": list_profiles()}
+            except Exception as e:
+                return {"ok": False, "error": str(e)}
+
+        @self.mcp.tool()
+        async def run_recon(url: str = "") -> dict:
+            """Run target reconnaissance (HTTP fingerprint, tech stack, WAF, SSL)."""
+            if not url:
+                return {"ok": False, "error": "URL required"}
+            try:
+                from core.recon import target_recon
+                result = await target_recon.full_recon(url)
+                return {"ok": True, **result}
+            except Exception as e:
+                return {"ok": False, "error": str(e)}
+
+        @self.mcp.tool()
+        def get_scan_history(limit: int = 20, target: str = "") -> dict:
+            """Get scan history with optional target filter."""
+            try:
+                from core.scan_history import scan_history
+                return {
+                    "ok": True,
+                    "scans": scan_history.get_history(limit, target),
+                    "stats": scan_history.get_stats(),
+                }
+            except Exception as e:
+                return {"ok": False, "error": str(e)}
+
+        @self.mcp.tool()
+        def compare_scans(scan_id_1: str = "", scan_id_2: str = "") -> dict:
+            """Compare two scan sessions and return differences."""
+            if not scan_id_1 or not scan_id_2:
+                return {"ok": False, "error": "Two scan IDs required"}
+            try:
+                from core.scan_history import scan_history
+                return {"ok": True, **scan_history.compare_scans(scan_id_1, scan_id_2)}
+            except Exception as e:
+                return {"ok": False, "error": str(e)}
+
+        @self.mcp.tool()
+        async def ai_consensus(prompt: str = "") -> dict:
+            """Query all available AI providers and return consensus result."""
+            if not prompt:
+                return {"ok": False, "error": "Prompt required"}
+            try:
+                from core.multi_ai import multi_ai
+                result = await multi_ai.consensus_query(prompt)
+                return {"ok": True, **result.to_dict()}
+            except Exception as e:
+                return {"ok": False, "error": str(e)}
+
         # Debug: tool registry size
         try:
             # count = len(getattr(self.mcp, "_tools", {}))
